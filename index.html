@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>메모리 반도체 4사 포워드 P/E 대시보드</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0b1020; --panel:#141b30; --panel2:#1b2440; --line:#27314f;
+    --txt:#e8edf7; --muted:#93a0bd; --accent:#5b8cff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(160deg,#0b1020,#0e1530);color:var(--txt);
+    font-family:'Segoe UI',-apple-system,'Malgun Gothic',sans-serif;padding:28px}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;position:relative;overflow:hidden}
+  .card .bar{position:absolute;left:0;top:0;height:4px;width:100%}
+  .card .name{font-size:14px;font-weight:600}
+  .card .ticker{color:var(--muted);font-size:11px;margin-bottom:10px}
+  .card .pe{font-size:30px;font-weight:700;line-height:1}
+  .card .pe span{font-size:13px;color:var(--muted);font-weight:400}
+  .card .delta{font-size:11px;margin-top:6px}
+  .up{color:#ff6b6b}.down{color:#3ecf8e}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px}
+  .toolbar{display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap}
+  .toolbar button{background:var(--panel2);color:var(--txt);border:1px solid var(--line);
+    border-radius:9px;padding:7px 13px;font-size:12.5px;cursor:pointer}
+  .toolbar button.active{background:var(--accent);border-color:var(--accent);color:#fff}
+  .chart-box{height:420px}
+  .note{color:var(--muted);font-size:11.5px;margin-top:16px;line-height:1.6}
+  @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>메모리 반도체 4사 — 포워드 P/E 추세</h1>
+  <div class="sub">삼성전자 · SK하이닉스 · 마이크론 · 샌디스크 &nbsp;|&nbsp; 2025년 11월 ~ 2026년 5월 (출처: GuruFocus·Seoul Economic Daily·Macrotrends 등)</div>
+
+  <div class="grid" id="cards"></div>
+
+  <div class="panel">
+    <div class="toolbar">
+      <button data-mode="trend" class="active">추세 (시계열)</button>
+      <button data-mode="current">현재값 비교</button>
+      <span style="color:var(--muted);font-size:11.5px;margin-left:auto">범례를 클릭해 항목을 켜고 끌 수 있습니다</span>
+    </div>
+    <div class="chart-box"><canvas id="chart"></canvas></div>
+    <div class="note" id="note"></div>
+  </div>
+</div>
+
+<script>
+const months=['25.11','25.12','26.01','26.02','26.03','26.04','26.05'];
+const data=[
+  {name:'삼성전자',ticker:'005930.KS',color:'#5b8cff',
+   series:[7.2,7.6,7.9,8.08,6.9,5.70,6.77]},
+  {name:'SK하이닉스',ticker:'000660.KS',color:'#3ecf8e',
+   series:[4.8,5.0,5.2,5.28,5.0,4.66,6.79]},
+  {name:'마이크론',ticker:'NASDAQ:MU',color:'#ffb454',
+   series:[12.0,11.5,11.0,10.5,10.7,10.2,9.70]},
+  {name:'샌디스크',ticker:'NASDAQ:SNDK',color:'#ff6b9d',
+   series:[13.5,13.0,12.5,12.2,12.0,11.8,11.68]}
+];
+
+// cards
+const cards=document.getElementById('cards');
+data.forEach(d=>{
+  const cur=d.series[d.series.length-1], prev=d.series[d.series.length-2];
+  const diff=cur-prev, pct=(diff/prev*100);
+  const cls=diff>=0?'up':'down', arrow=diff>=0?'▲':'▼';
+  const el=document.createElement('div');
+  el.className='card';
+  el.innerHTML=`<div class="bar" style="background:${d.color}"></div>
+    <div class="name">${d.name}</div>
+    <div class="ticker">${d.ticker}</div>
+    <div class="pe">${cur.toFixed(2)}<span>x</span></div>
+    <div class="delta ${cls}">${arrow} ${Math.abs(diff).toFixed(2)} (${pct>=0?'+':''}${pct.toFixed(1)}%) 전월대비</div>`;
+  cards.appendChild(el);
+});
+
+const ctx=document.getElementById('chart');
+const note=document.getElementById('note');
+let mode='trend';
+let chart;
+
+const trendNote=`※ 포워드 P/E는 향후 12개월 예상 EPS 기준입니다. 삼성전자·SK하이닉스는 2026년 2월(삼성 8.08x·하이닉스 5.28x)·4월·5월(삼성 6.77x·하이닉스 6.79x로 첫 역전) 실제 발표치를 변곡점으로 반영했고, 그 외 월과 마이크론·샌디스크의 중간 구간은 공시·시세 흐름에 기반한 추정치입니다. 투자 판단 근거가 아닌 참고용입니다.`;
+const curNote=`※ 각 사 최신 포워드 P/E (2026년 5월 기준). 데이터 제공처·상장 시장·산정 시점에 따라 편차가 있을 수 있습니다.`;
+
+function buildTrend(){
+  return {type:'line',
+    data:{labels:months,datasets:data.map(d=>({
+      label:d.name,data:d.series,borderColor:d.color,backgroundColor:d.color,
+      tension:0.3,borderWidth:2.5,pointRadius:3,pointHoverRadius:6}))},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{color:'#cdd6ea',usePointStyle:true}},
+        tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.y.toFixed(2)}x`}}},
+      scales:{
+        x:{ticks:{color:'#cdd6ea'},grid:{color:'#1c2540'}},
+        y:{ticks:{color:'#93a0bd',callback:v=>v+'x'},grid:{color:'#27314f'},
+           title:{display:true,text:'포워드 P/E (배수)',color:'#93a0bd'}}
+      }}};
+}
+function buildCurrent(){
+  return {type:'bar',
+    data:{labels:data.map(d=>d.name),datasets:[{label:'현재 포워드 P/E',
+      data:data.map(d=>d.series[d.series.length-1]),
+      backgroundColor:data.map(d=>d.color),borderRadius:8,maxBarThickness:70}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#cdd6ea'}},
+        tooltip:{callbacks:{label:c=>` ${c.parsed.y.toFixed(2)}x`}}},
+      scales:{
+        x:{ticks:{color:'#cdd6ea',font:{size:13}},grid:{display:false}},
+        y:{beginAtZero:true,ticks:{color:'#93a0bd',callback:v=>v+'x'},grid:{color:'#27314f'},
+           title:{display:true,text:'배수 (x)',color:'#93a0bd'}}
+      }}};
+}
+
+function render(){
+  if(chart)chart.destroy();
+  chart=new Chart(ctx,mode==='trend'?buildTrend():buildCurrent());
+  note.textContent=mode==='trend'?trendNote:curNote;
+}
+render();
+
+document.querySelectorAll('.toolbar button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('.toolbar button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    mode=b.dataset.mode;
+    render();
+  });
+});
+</script>
+</body>
+</html>
