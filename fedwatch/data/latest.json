@@ -1,0 +1,67 @@
+{
+  "quote_date": "2026-08-14",
+  "policy": {
+    "date": "2026-08-13",
+    "effr": 3.63,
+    "target_lo": 3.5,
+    "target_hi": 3.75
+  },
+  "calendar_source": "federalreserve.gov",
+  "diagnostics": {
+    "spread_bp": 0.5,
+    "anchor_gap_bp": 0.25,
+    "target_mid": 3.625
+  },
+  "meetings": [
+    {
+      "date": "2026-09-16",
+      "method": "day-weighted",
+      "confidence": "OK",
+      "implied_rate": 3.7107,
+      "cum_moves": 0.3429,
+      "scenarios": {
+        "0": 0.6571,
+        "1": 0.3429
+      }
+    },
+    {
+      "date": "2026-10-28",
+      "method": "next-month",
+      "confidence": "OK",
+      "implied_rate": 3.76,
+      "cum_moves": 0.54,
+      "scenarios": {
+        "0": 0.5276,
+        "1": 0.4048,
+        "2": 0.0676
+      }
+    },
+    {
+      "date": "2026-12-09",
+      "method": "day-weighted",
+      "confidence": "OK",
+      "implied_rate": 3.8586,
+      "cum_moves": 0.9345,
+      "scenarios": {
+        "0": 0.3194,
+        "1": 0.4533,
+        "2": 0.2006,
+        "3": 0.0267
+      }
+    },
+    {
+      "date": "2027-01-26",
+      "method": "next-month",
+      "confidence": "OK",
+      "implied_rate": 3.905,
+      "cum_moves": 1.12,
+      "scenarios": {
+        "0": 0.2602,
+        "1": 0.4284,
+        "2": 0.2475,
+        "3": 0.0589,
+        "4": 0.0049
+      }
+    }
+  ]
+}
