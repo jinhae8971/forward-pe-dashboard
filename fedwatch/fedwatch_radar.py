@@ -468,6 +468,9 @@ def main(argv: List[str]) -> int:
 
     latest = {
         "quote_date": quote_date,
+        # 발송은 전략 Agent 토큰을 보유한 hynix-correction-monitor 레포가 릴레이한다.
+        # 포매팅을 이중 관리하지 않도록 렌더링된 본문을 그대로 실어 보낸다.
+        "message": message,
         "policy": policy,
         "calendar_source": cal_source,
         "diagnostics": diag,

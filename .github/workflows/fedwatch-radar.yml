@@ -50,10 +50,9 @@ jobs:
 
       - name: Run FedWatch radar
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          FEDWATCH_TELEGRAM_TOKEN: ${{ secrets.FEDWATCH_TELEGRAM_TOKEN }}
-          FEDWATCH_TELEGRAM_CHAT_ID: ${{ secrets.FEDWATCH_TELEGRAM_CHAT_ID }}
+          # 이 레포는 계산·커밋만 담당한다. 발송은 전략 Agent 토큰을 가진
+          # hynix-correction-monitor 의 fedwatch-relay 워크플로우가 대행한다.
+          # (텔레그램 자격증명을 넘기지 않으므로 여기서는 항상 발송 생략된다)
           SKIP_NOTIFY: ${{ inputs.skip_notify }}
           TZ: "Asia/Seoul"
         run: |
@@ -63,7 +62,7 @@ jobs:
             exit 1
           fi
           if [[ "${SKIP_NOTIFY:-false}" == "true" ]]; then
-            unset TELEGRAM_TOKEN TELEGRAM_CHAT_ID FEDWATCH_TELEGRAM_TOKEN FEDWATCH_TELEGRAM_CHAT_ID
+            echo "발송은 릴레이가 담당 - skip_notify 는 무의미"
           fi
           python fedwatch_radar.py
 
