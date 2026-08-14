@@ -41,6 +41,19 @@ UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chr
 # ────────────────────────────── 설정 ──────────────────────────────
 
 def load_config() -> dict:
+    """FedWatch 전용 채널을 우선 사용하고, 없으면 레포 공용 자격증명으로 폴백.
+
+    같은 레포에 얹힌 다른 브리프(포워드 P/E)와 발송 채널을 분리하기 위한 구조.
+    FEDWATCH_TELEGRAM_TOKEN / FEDWATCH_TELEGRAM_CHAT_ID 를 등록하면 그쪽으로만 간다.
+    """
+    fed_token = os.environ.get("FEDWATCH_TELEGRAM_TOKEN", "")
+    fed_chat = os.environ.get("FEDWATCH_TELEGRAM_CHAT_ID", "")
+    if fed_token and fed_chat:
+        print("[telegram] FedWatch 전용 채널 사용")
+        cfg = {"telegram_token": fed_token, "telegram_chat_id": fed_chat}
+        return cfg
+    if fed_token or fed_chat:
+        print("[telegram] 경고: FEDWATCH_* 자격증명이 한쪽만 등록됨 - 공용 채널로 폴백")
     cfg = {
         "telegram_token": os.environ.get("TELEGRAM_TOKEN", ""),
         "telegram_chat_id": os.environ.get("TELEGRAM_CHAT_ID", ""),

@@ -52,6 +52,8 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FEDWATCH_TELEGRAM_TOKEN: ${{ secrets.FEDWATCH_TELEGRAM_TOKEN }}
+          FEDWATCH_TELEGRAM_CHAT_ID: ${{ secrets.FEDWATCH_TELEGRAM_CHAT_ID }}
           SKIP_NOTIFY: ${{ inputs.skip_notify }}
           TZ: "Asia/Seoul"
         run: |
@@ -61,7 +63,7 @@ jobs:
             exit 1
           fi
           if [[ "${SKIP_NOTIFY:-false}" == "true" ]]; then
-            unset TELEGRAM_TOKEN TELEGRAM_CHAT_ID
+            unset TELEGRAM_TOKEN TELEGRAM_CHAT_ID FEDWATCH_TELEGRAM_TOKEN FEDWATCH_TELEGRAM_CHAT_ID
           fi
           python fedwatch_radar.py
 
@@ -88,8 +90,8 @@ jobs:
         if: failure()
         working-directory: .
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_TOKEN: ${{ secrets.FEDWATCH_TELEGRAM_TOKEN || secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.FEDWATCH_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           curl -sS -X POST \
