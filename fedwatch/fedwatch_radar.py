@@ -31,7 +31,7 @@ HISTORY_PATH = os.path.join(DATA_DIR, "history.json")
 
 MONTH_CODE = {1: "F", 2: "G", 3: "H", 4: "J", 5: "K", 6: "M",
               7: "N", 8: "Q", 9: "U", 10: "V", 11: "X", 12: "Z"}
-HORIZON_MONTHS = 16      # 조회할 월물 수
+HORIZON_MONTHS = 9       # 조회할 월물 수 (표시 회의 + 다음달 계약까지면 충분)
 MEETINGS_SHOWN = 4       # 브리프에 표시할 회의 수
 HISTORY_KEEP = 400       # 이력 보관 일수
 
@@ -72,7 +72,9 @@ def _get_json(url: str, params: dict | None = None, tries: int = 3) -> dict:
             return r.json()
         except Exception as exc:  # noqa: BLE001
             last = exc
-            time.sleep(1.5 * (i + 1))
+            # 429(레이트리밋)는 공유 러너 IP에서 흔하다 — 더 길게 물러선다
+            wait = 8.0 * (i + 1) if "429" in str(exc) else 1.5 * (i + 1)
+            time.sleep(wait)
     raise RuntimeError(f"요청 실패 {url}: {last}")
 
 
@@ -88,43 +90,83 @@ def fetch_policy_rate() -> dict:
     }
 
 
-def _yahoo_chart(symbol: str) -> dict | None:
+def _sym(key: Tuple[int, int]) -> str:
+    return f"ZQ{MONTH_CODE[key[1]]}{key[0] % 100:02d}.CBT"
+
+
+def _fetch_spark(symbols: List[str]) -> Dict[str, Tuple[float, int]]:
+    """Yahoo spark — 여러 심볼을 1회 요청으로. 공유 러너 IP의 429를 피하는 핵심."""
+    out: Dict[str, Tuple[float, int]] = {}
     for host in ("query1", "query2"):
         try:
-            j = _get_json(
-                f"https://{host}.finance.yahoo.com/v8/finance/chart/{symbol}",
-                params={"range": "5d", "interval": "1d"}, tries=2)
+            j = _get_json(f"https://{host}.finance.yahoo.com/v7/finance/spark",
+                          params={"symbols": ",".join(symbols), "range": "5d",
+                                  "interval": "1d"}, tries=3)
+            for entry in (j.get("spark") or {}).get("result", []):
+                resp = (entry.get("response") or [{}])[0]
+                meta = resp.get("meta", {})
+                price, ts = meta.get("regularMarketPrice"), meta.get("regularMarketTime")
+                if price:
+                    out[entry["symbol"]] = (float(price), int(ts or 0))
+            if out:
+                return out
+        except Exception as exc:  # noqa: BLE001
+            print(f"[yahoo/spark] @{host} 실패: {exc}")
+    return out
+
+
+def _fetch_chart(symbol: str) -> Tuple[float, int] | None:
+    """개별 계약 조회 — spark 누락분 보완용 폴백."""
+    for host in ("query1", "query2"):
+        try:
+            j = _get_json(f"https://{host}.finance.yahoo.com/v8/finance/chart/{symbol}",
+                          params={"range": "5d", "interval": "1d"}, tries=2)
             res = (j.get("chart") or {}).get("result")
             if res:
-                return res[0]
+                meta = res[0].get("meta", {})
+                price, ts = meta.get("regularMarketPrice"), meta.get("regularMarketTime")
+                if price:
+                    return float(price), int(ts or 0)
         except Exception as exc:  # noqa: BLE001
-            print(f"[yahoo] {symbol} @{host} 실패: {exc}")
+            print(f"[yahoo/chart] {symbol} @{host} 실패: {exc}")
     return None
 
 
 def fetch_zq_curve(start: dt.date, months: int = HORIZON_MONTHS
                    ) -> Tuple[Dict[Tuple[int, int], float], str]:
-    """ZQ 월물 곡선 수집 → {(연,월): 내재금리(100-가격)} 및 시세일자."""
-    implied: Dict[Tuple[int, int], float] = {}
-    quote_dates: List[str] = []
+    """ZQ 월물 곡선 수집 → {(연,월): 내재금리(100-가격)} 및 시세일자.
+
+    1순위 spark(1회 요청) → 누락분만 개별 chart 로 보완.
+    일부 원월이 비어도 계산 가능한 근월까지는 진행한다.
+    """
+    keys = []
     key = (start.year, start.month)
     for _ in range(months):
-        sym = f"ZQ{MONTH_CODE[key[1]]}{key[0] % 100:02d}.CBT"
-        res = _yahoo_chart(sym)
-        if res:
-            meta = res.get("meta", {})
-            price = meta.get("regularMarketPrice")
-            if price:
-                implied[key] = round(100.0 - float(price), 6)
-                ts = meta.get("regularMarketTime")
-                if ts:
-                    quote_dates.append(
-                        dt.datetime.fromtimestamp(ts, dt.timezone.utc).date().isoformat())
+        keys.append(key)
         key = eng.add_month(key, 1)
-        time.sleep(0.25)
-    if not implied:
-        raise RuntimeError("ZQ 월물 시세를 하나도 받지 못했습니다.")
-    quote_date = max(quote_dates) if quote_dates else dt.date.today().isoformat()
+
+    quotes = _fetch_spark([_sym(k) for k in keys])
+    print(f"[zq] spark {len(quotes)}/{len(keys)} 수신")
+
+    missing = [k for k in keys if _sym(k) not in quotes]
+    for k in missing[:4]:  # 폴백은 근월 위주로 제한 (레이트리밋 회피)
+        got = _fetch_chart(_sym(k))
+        if got:
+            quotes[_sym(k)] = got
+        time.sleep(1.0)
+
+    implied: Dict[Tuple[int, int], float] = {}
+    stamps: List[int] = []
+    for k in keys:
+        got = quotes.get(_sym(k))
+        if got:
+            implied[k] = round(100.0 - got[0], 6)
+            if got[1]:
+                stamps.append(got[1])
+    if len(implied) < 3:
+        raise RuntimeError(f"ZQ 월물 시세 부족 ({len(implied)}건) — 데이터 소스 점검 필요")
+    quote_date = (dt.datetime.fromtimestamp(max(stamps), dt.timezone.utc).date().isoformat()
+                  if stamps else dt.date.today().isoformat())
     return implied, quote_date
 
 
@@ -328,7 +370,7 @@ def main(argv: List[str]) -> int:
     print(f"[fomc] {cal_source} / 대상 {[d.isoformat() for d in targets]}")
 
     implied, quote_date = fetch_zq_curve(today, HORIZON_MONTHS)
-    print(f"[zq] {len(implied)}개 월물 / 시세일 {quote_date}")
+    print(f"[zq] 확보 {len(implied)}개 월물 / 시세일 {quote_date}")
 
     outlooks, diag = eng.compute(
         targets, implied, policy["effr"],

@@ -147,7 +147,7 @@ def compute(
                 method = "next-month(contaminated)"
                 confidence = "LOW"
             else:
-                continue
+                break  # 데이터 누락 — 이후 회의는 부트스트랩 체인이 성립하지 않는다
 
         cum = (r_post - mid) / STEP
         deltas.append(cum - cum_prev)
