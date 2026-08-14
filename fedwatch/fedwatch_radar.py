@@ -94,6 +94,51 @@ def _sym(key: Tuple[int, int]) -> str:
     return f"ZQ{MONTH_CODE[key[1]]}{key[0] % 100:02d}.CBT"
 
 
+def _fetch_barchart(keys: List[Tuple[int, int]]) -> Dict[str, Tuple[float, str]]:
+    """Barchart 공개 quote 엔드포인트 — 1회 요청으로 전 월물 '정산가' 수신.
+
+    Yahoo 는 GitHub Actions 러너 IP 대역을 429 로 전면 차단하므로 1순위로 둔다.
+    lastPrice 는 "96.3300s" 형태이며 접미 s 는 settlement(정산) 표시다.
+    """
+    out: Dict[str, Tuple[float, str]] = {}
+    syms = [f"ZQ{MONTH_CODE[k[1]]}{k[0] % 100:02d}" for k in keys]
+    try:
+        sess = requests.Session()
+        sess.headers.update({"User-Agent": UA})
+        sess.get("https://www.barchart.com/futures/quotes/ZQY00", timeout=25)
+        token = requests.utils.unquote(sess.cookies.get("XSRF-TOKEN", "") or "")
+        if not token:
+            print("[barchart] XSRF 토큰 없음")
+            return out
+        r = sess.get("https://www.barchart.com/proxies/core-api/v1/quotes/get",
+                     params={"symbols": ",".join(syms),
+                             "fields": "lastPrice,tradeTime,symbol"},
+                     headers={"x-xsrf-token": token,
+                              "Referer": "https://www.barchart.com/futures/quotes/ZQY00"},
+                     timeout=30)
+        r.raise_for_status()
+        for row in (r.json().get("data") or []):
+            raw = str(row.get("lastPrice") or "").rstrip("sc ").strip()
+            if not raw:
+                continue
+            try:
+                price = float(raw)
+            except ValueError:
+                continue
+            out[row["symbol"]] = (price, str(row.get("tradeTime") or ""))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[barchart] 실패: {exc}")
+    return out
+
+
+def _parse_barchart_date(s: str) -> str | None:
+    """'08/14/26' → '2026-08-14'."""
+    try:
+        return dt.datetime.strptime(s.strip(), "%m/%d/%y").date().isoformat()
+    except (ValueError, AttributeError):
+        return None
+
+
 def _fetch_spark(symbols: List[str]) -> Dict[str, Tuple[float, int]]:
     """Yahoo spark — 여러 심볼을 1회 요청으로. 공유 러너 IP의 429를 피하는 핵심."""
     out: Dict[str, Tuple[float, int]] = {}
@@ -145,28 +190,42 @@ def fetch_zq_curve(start: dt.date, months: int = HORIZON_MONTHS
         keys.append(key)
         key = eng.add_month(key, 1)
 
-    quotes = _fetch_spark([_sym(k) for k in keys])
-    print(f"[zq] spark {len(quotes)}/{len(keys)} 수신")
-
-    missing = [k for k in keys if _sym(k) not in quotes]
-    for k in missing[:4]:  # 폴백은 근월 위주로 제한 (레이트리밋 회피)
-        got = _fetch_chart(_sym(k))
-        if got:
-            quotes[_sym(k)] = got
-        time.sleep(1.0)
+    # 1순위: Barchart 정산가 (러너 IP에서 유일하게 안정적)
+    bc = _fetch_barchart(keys)
+    print(f"[zq] barchart {len(bc)}/{len(keys)} 수신")
 
     implied: Dict[Tuple[int, int], float] = {}
-    stamps: List[int] = []
+    dates: List[str] = []
     for k in keys:
-        got = quotes.get(_sym(k))
-        if got:
-            implied[k] = round(100.0 - got[0], 6)
-            if got[1]:
-                stamps.append(got[1])
+        sym = f"ZQ{MONTH_CODE[k[1]]}{k[0] % 100:02d}"
+        if sym in bc:
+            price, tstr = bc[sym]
+            implied[k] = round(100.0 - price, 6)
+            d = _parse_barchart_date(tstr)
+            if d:
+                dates.append(d)
+    source = "barchart(settle)"
+
+    # 2순위: Yahoo spark — Barchart 실패 시에만
+    if len(implied) < 3:
+        quotes = _fetch_spark([_sym(k) for k in keys])
+        print(f"[zq] spark 폴백 {len(quotes)}/{len(keys)} 수신")
+        stamps: List[int] = []
+        for k in keys:
+            got = quotes.get(_sym(k))
+            if got:
+                implied[k] = round(100.0 - got[0], 6)
+                if got[1]:
+                    stamps.append(got[1])
+        if stamps:
+            dates.append(dt.datetime.fromtimestamp(
+                max(stamps), dt.timezone.utc).date().isoformat())
+            source = "yahoo(last)"
+
     if len(implied) < 3:
         raise RuntimeError(f"ZQ 월물 시세 부족 ({len(implied)}건) — 데이터 소스 점검 필요")
-    quote_date = (dt.datetime.fromtimestamp(max(stamps), dt.timezone.utc).date().isoformat()
-                  if stamps else dt.date.today().isoformat())
+    quote_date = max(dates) if dates else dt.date.today().isoformat()
+    print(f"[zq] 소스={source}")
     return implied, quote_date
 
 
