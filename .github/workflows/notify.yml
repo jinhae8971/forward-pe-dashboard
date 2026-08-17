@@ -5,20 +5,67 @@ on:
     - cron: "0 21 * * 0-4"   # KST 평일(월~금) 06:00
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+concurrency:
+  group: forward-pe-notify
+  cancel-in-progress: false
+
 jobs:
   notify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
+
       - run: pip install -r requirements.txt
+
+      # 1) 수집 — 실패해도 이후 단계는 직전 data.json으로 진행
+      - name: Collect forward P/E
+        id: collect
+        continue-on-error: true
+        env:
+          TZ: "Asia/Seoul"
+        run: python collect.py
+
+      # 2) 커밋백 — 대시보드가 읽는 data.json을 저장소에 반영
+      - name: Commit data.json
+        if: steps.collect.outcome == 'success'
+        run: |
+          if [ -n "$(git status --porcelain data.json)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data.json
+            git commit -m "chore: forward P/E snapshot $(date +%F)"
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          else
+            echo "변경 없음 — 커밋 건너뜀"
+          fi
+
+      # 3) 알림 — data.json 기반 브리프 발송
       - name: Send Telegram
         env:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TZ: "Asia/Seoul"
         run: python notify.py
+
+      # 4) 수집 실패 시 별도 경보
+      - name: Notify collection failure
+        if: steps.collect.outcome != 'success'
+        env:
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d parse_mode="HTML" \
+            -d text="⚠️ <b>포워드 P/E 수집 실패</b>%0A오늘 수집이 실패해 직전 데이터로 브리프를 발송했습니다.%0A워크플로우 로그를 확인해 주세요." \
+            > /dev/null
