@@ -2,8 +2,6 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>메모리 반도체 4사 포워드 P/E 대시보드</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -109,6 +107,11 @@ function monthlySeries(){
   const labels = [];
   for(let k = first; ; k = addMonth(k)){ labels.push(k); if(k === last) break; }
 
+  // 각 월의 데이터 성격: collected(수집) / reconstructed(복원) / legacy(도입 이전)
+  const kind = {};
+  DATA.history.forEach(h => { kind[monthKey(h.date)] = h.method === 'reconstructed' ? 'recon' : 'collected'; });
+  legacy.months.forEach(k => { if(!kind[k]) kind[k] = 'legacy'; });
+
   const series = {};
   DATA.tickers.forEach(t => {
     series[t.key] = labels.map(k => {
@@ -118,7 +121,8 @@ function monthlySeries(){
       return null;
     });
   });
-  return {labels, series};
+  const kinds = labels.map(k => kind[k] || 'legacy');
+  return {labels, series, kinds};
 }
 
 function dailySeries(){
@@ -190,13 +194,19 @@ function renderCards(){
 }
 
 function lineConfig(src, xTitle){
+  const kinds = src.kinds || null;
+  const styleOf = k => k === 'recon' ? 'rectRot' : 'circle';
   return {type:'line',
     data:{labels:src.labels, datasets:DATA.tickers.map(t => ({
       label:t.name, data:src.series[t.key], borderColor:t.color, backgroundColor:t.color,
-      tension:0.3, borderWidth:2.5, pointRadius:3, pointHoverRadius:6, spanGaps:false}))},
+      tension:0.3, borderWidth:2.5,
+      pointStyle: kinds ? kinds.map(styleOf) : 'circle',
+      pointRadius: kinds ? kinds.map(k => k === 'recon' ? 5 : 3) : 3,
+      pointHoverRadius:7, spanGaps:false}))},
     options:{responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false},
       plugins:{legend:{labels:{color:'#cdd6ea', usePointStyle:true}},
-        tooltip:{callbacks:{label:c => ` ${c.dataset.label}: ${c.parsed.y == null ? '—' : c.parsed.y.toFixed(2) + 'x'}`}}},
+        tooltip:{callbacks:{label:c => ` ${c.dataset.label}: ${c.parsed.y == null ? '—' : c.parsed.y.toFixed(2) + 'x'}`
+          + (kinds && kinds[c.dataIndex] === 'recon' ? ' (복원)' : '')}}},
       scales:{
         x:{ticks:{color:'#cdd6ea', maxRotation:0, autoSkip:true}, grid:{color:'#1c2540'},
            title:{display:!!xTitle, text:xTitle, color:'#93a0bd'}},
@@ -233,7 +243,10 @@ function render(){
   const legacyNote = (DATA.legacy && DATA.legacy.note) ? DATA.legacy.note : '';
   if(mode === 'trend'){
     cfg = lineConfig(monthlySeries(), '월 (YY.MM)');
-    note = `※ 각 월의 마지막 수집 관측치 기준입니다. ${legacyNote} 값이 없는 월은 그래프에서 공백으로 표시됩니다.`;
+    note = `※ 각 월의 마지막 관측치 기준입니다. ◆ 표시(2026.06·07)는 자동 수집 도입 전 구간을 `
+         + `당시 주가와 차기연도 EPS 추정치 리비전으로 복원한 값입니다(보간·추정 아님). ${legacyNote} `
+         + `다만 2026.05 이전 구간은 산출 기준이 달라, 복원 방식으로 다시 계산하면 더 낮은 값이 나옵니다. `
+         + `구간을 넘는 절대 수준 비교보다 각 구간 내 방향성 위주로 보시기 바랍니다.`;
   }else if(mode === 'daily'){
     cfg = lineConfig(dailySeries(), '수집일 (MM-DD)');
     note = `※ 최근 60회 수집분의 일별 추이입니다. 평일 06:00 KST에 자동 수집됩니다.`;
