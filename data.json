@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema": 1,
-    "updated_at": "2026-08-25 06:36 KST",
+    "updated_at": "2026-08-26 06:35 KST",
     "source": "Yahoo Finance (yfinance)",
     "collected": 4,
     "total": 4
@@ -167,6 +167,15 @@
         "000660.KS": 3.67,
         "MU": 5.87,
         "SNDK": 5.64
+      }
+    },
+    {
+      "date": "2026-08-26",
+      "values": {
+        "005930.KS": 3.74,
+        "000660.KS": 3.63,
+        "MU": 6.02,
+        "SNDK": 5.59
       }
     }
   ]
